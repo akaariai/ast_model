@@ -35,4 +35,10 @@ for _ in range(0, ITERATIONS):
     # https://github.com/akaariai/django/tree/chunked
     #for obj in Foo10.objects.all().chunked():
     #    pass
+    # Reference test for raw SQL
+    #from django.db import connection
+    #cursor = connection.cursor()
+    #cursor.execute("select * from obj_creation_speed_foo10")
+    #for row in cursor.fetchall():
+    #    pass
     print('Time for %d objs from DB %s' % (DATA_COUNT, datetime.now() - start))

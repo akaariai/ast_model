@@ -23,6 +23,8 @@ class SomeModel(models.Model):
 The speed differences for 30000 Foo10 object initializations is as follows:
     Raw init: ~2 seconds -> ~0.4 seconds
     From DB: ~3 seconds -> ~1.4 seconds
+For reference, the time taken for raw SQL is around 0.6 seconds, so the
+overhead is still a bit more than 100%.
 
 Without any signals in the project:
     Raw init: ~1.2 seconds -> ~0.4 seconds
