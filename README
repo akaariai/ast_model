@@ -1,0 +1,36 @@
+This experimental project includes a new model base class, ASTModelBase. The
+ASTModelBase will rewrite the __init__ so that the standard setattr based
+field value assigment is rewritten to:
+self.f1, self.f2, ... = args
+
+This fast-path is usable only when using args based initialization, and when
+there are exactly as many args as there are fields in the model. This is the
+case when fetching objects from the DB and not using .only() or .defer().
+
+pre_init and post_init signals will not be sent for models using ASTModelBase.
+This means that models using GenericForeignKeys or ImageFields will not work
+correctly.
+
+To use ASTModelBase, copy astmodelbase.py to your project root, and then in
+models py, do this:
+from my_project.astmodelbase import ASTModelBase
+
+class SomeModel(models.Model):
+    __metaclass__ = ASTModelBase
+    ...
+
+
+The speed differences for 30000 Foo10 object initializations is as follows:
+    Raw init: ~2 seconds -> ~0.4 seconds
+    From DB: ~3 seconds -> ~1.4 seconds
+
+Without any signals in the project:
+    Raw init: ~1.2 seconds -> ~0.4 seconds
+    From DB: ~2.3 seconds -> ~1.4 seconds
+
+Using __dict__.update in the asted init instead of the self.f1, ... = args:
+    Raw init: ~0.5 seconds -> ~0.4 seconds
+    From DB: ~1.5 seconds -> ~1.4 seconds
+
+The __dict__.update will not call setattr if you have one defined in your
+model. The self.f1, ... = args will call it.
