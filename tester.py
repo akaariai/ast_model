@@ -24,5 +24,6 @@ for _ in range(0, ITERATIONS):
     print('Time for %d raw inits %s' % (DATA_COUNT, datetime.now() - start))
 
     start = datetime.now()
-    list(Foo10.objects.all())
+    for obj in Foo10.objects.all():
+        pass
     print('Time for %d objs from DB %s' % (DATA_COUNT, datetime.now() - start))
