@@ -26,4 +26,8 @@ for _ in range(0, ITERATIONS):
     start = datetime.now()
     for obj in Foo10.objects.all():
         pass
+    # When using chunked iterator from
+    # https://github.com/akaariai/django/tree/chunked
+    #for obj in Foo10.objects.all().chunked():
+    #    pass
     print('Time for %d objs from DB %s' % (DATA_COUNT, datetime.now() - start))

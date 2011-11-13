@@ -34,3 +34,9 @@ Using __dict__.update in the asted init instead of the self.f1, ... = args:
 
 The __dict__.update will not call setattr if you have one defined in your
 model. The self.f1, ... = args will call it.
+
+Same as first test, but using .chunked() for DB fetch.
+Chunked is provided by a patch at:
+https://github.com/akaariai/django/tree/chunked
+    Raw init: ~2 seconds -> ~0.4 seconds
+    From DB: ~2.8 seconds -> ~1.1 seconds
