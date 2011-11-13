@@ -1,2 +1,3 @@
 /django
 *.pyc
+*.swp
