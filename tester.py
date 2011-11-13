@@ -9,13 +9,18 @@ from obj_creation_speed.models import Foo10
 DATA_COUNT = 30000
 ITERATIONS = 3
 
+testobj = Foo10(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+assert testobj.pk == 0
+for i in range(1, 11):
+    assert getattr(testobj, 'f%d' % i) == i
+
 @commit_on_success
 def create_data(count):
     Foo10.objects.all().delete()
     for i in range(0, count):
         Foo10(*([i]*11)).save()
 # Needed only on first run
-create_data(DATA_COUNT)
+#create_data(DATA_COUNT)
 
 for _ in range(0, ITERATIONS):
     start = datetime.now()
