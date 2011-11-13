@@ -23,20 +23,13 @@ class ASTModelBase(ModelBase):
     signals. There is no checking if these fields are present. ImageField
     should actually work if you don't have width/height DB fields.
 
-    On Python 2.6, in a project that has both pre_init and post_init signals
-    in use to some model (not necessarily the current model) the speedup for
-    Foo2.objects.all()[0:10000] is X, where Foo has fields id, val1, and val2.
-    For Foo10(objects.all()[0:10000] the speedup is Y, where Foo10 has id +
-    10 fields. The test is done on in-memory SQLite database.
-
     AST is used to dynamically alter the original Model.__init__ into a new
     __init__ method which has the abovementioned optimizations done. The AST
     generation has a lot of comments, so it should be possible to follow what
     is done.
 
-    Requirements: Python 2.6 or Python 2.7. Tested also on PyPy 1.6 nightly
-    (2011-10-15). There is no Python 3 support in Django, but the AST part
-    should work with minor modifications.
+    Requirements: Python 2.6 or Python 2.7. There is no Python 3 support in
+    Django, but the AST part should work with minor modifications.
 
     Usage:
     class SomeModel(models.Model):
@@ -169,6 +162,10 @@ class RewriteInit(ast.NodeTransformer):
                                 comparators=[ast.Num(n=self.len_fields)])
                 newif = ast.If(test=test, body=self.new_if_body,
                                orelse=node.orelse)
+                # Use the following code if you want to test the hard coded
+                # dict.update way. Works only for Foo10 model.
+                #newif = ast.If(test=test, body=node.body,
+                #               orelse=node.orelse)
                 return newif
             return node
         except Exception, e:
@@ -186,7 +183,9 @@ def __init__(self, *args, **kwargs):
     self._state = ModelState()
 
     # AST: we are going to rewrite the -999 below, and also the pass into
-    # self.field1, self.field2, ... = args.
+    # self.field1, self.field2, ... = args. The constant -999 is a marker
+    # for ast generation. You can try the __dict__.update way by altering
+    # the RewriteInit class above.
     if len(args) == -999:
         self.__dict__.update(izip(
             ['id', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10'],
