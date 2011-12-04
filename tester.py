@@ -7,6 +7,7 @@ ITERATIONS = 10
 
 @commit_on_success
 def create_data(count):
+    print "deleting / creating test data"
     while Foo10.objects.count() > 0:
         Foo10.objects.filter(pk__in=Foo10.objects.all()[0:500]).delete()
     for i in range(0, count):

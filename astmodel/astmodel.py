@@ -14,13 +14,17 @@ class ASTModel(Model):
         try:
             self._asted_init(*args, **kwargs)
         except AttributeError:
-            for field in self._meta.fields:
+            for field in self._meta.fields + self._meta.virtual_fields:
                 if (isinstance(field, GenericForeignKey)
-                    or isinstance(field, ImageField)):
+                        or isinstance(field, ImageField)):
                     self.send_init_signals = True
             new_init = self._create_ast_init()
             self.__class__._asted_init = new_init
-            # Lets see if we can use a fast-path?
+
+            # Lets see if we can use a fast-path, that is, we
+            # do not need to visit this proxy __init__ again.
+            # If there is no overriding __init__ in the class
+            # hierarchy, we are good to go.
             if self.__class__.__init__ == ASTModel.__init__:
                  self.__class__.__init__ = new_init
             self._asted_init(*args, **kwargs)
@@ -92,7 +96,6 @@ class ASTModel(Model):
         return init_context['__init__']
 
 
-
 class RewriteInit(ast.NodeTransformer):
     def __init__(self, new_if_body, len_fields, send_init_signals):
         self.new_if_body = new_if_body
@@ -101,9 +104,15 @@ class RewriteInit(ast.NodeTransformer):
 
     def visit_If(self, node):
         try:
-            if (not self.send_init_signals and hasattr(node.test, 'attr')
-                 and node.test.attr == 'send_init_signals'):
-                return None
+            # Rewrite the init signal sending into:
+            #  - Nothing, if we are not sending signals
+            #  - pre/post_init.send() if we are sending signals
+            if (hasattr(node.test, 'attr')
+                    and node.test.attr == 'send_init_signals'):
+                if self.send_init_signals:
+                    return node.body
+                else:
+                    return None
             if (hasattr(node.test, 'comparators')
                  and hasattr(node.test.comparators[0], 'n')
                  and node.test.comparators[0].n == -999):
