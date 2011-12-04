@@ -1,6 +1,7 @@
 from django.db.models import Model
 from django.db.models.base import ModelBase
-from django.db.models import Field
+from django.db.models import Field, ImageField
+from django.contrib.contenttypes.generic import GenericForeignKey
 import ast
 
 class ASTModel(Model):
@@ -25,7 +26,7 @@ class ASTModel(Model):
     Requirements: Python 2.6 or Python 2.7.
 
     Usage:
-        from astmodel import ASTModel
+        from somewhere.astmodel import ASTModel
         class SomeModel(ASTModel):
             # If you want to force init signal sending, then set
             # send_init_signals = True
@@ -37,22 +38,28 @@ class ASTModel(Model):
     Known bugs and limitations:
       - Eats your data. In other words, not tested at all. Use at your own
         risk.
+      - Due to Django assuming that models are in some module, you must
+        install this file into a subdirectory of your project root.
 
     I have tested this on Django trunk as of 2011-12-04, all tests passed.
     """
-    __metaclass__ = ASTModelBase
     send_init_signals = False
+    
+    class Meta:
+        abstract = True
 
     def __init__(self, *args, **kwargs):
         try:
             self._asted_init(*args, **kwargs)
         except AttributeError:
-            new_init = self._create_ast_init()
-            self.__class__._asted_init = new_init
             for field in self._meta.fields:
                 if (isinstance(field, GenericForeignKey)
                     or isinstance(field, ImageField)):
                     self.send_init_signals = True
+            new_init = self._create_ast_init()
+            self.__class__._asted_init = new_init
+            if self.__class__.__init__ == ASTModel.__init__:
+                 self.__class__.__init__ = new_init
             self._asted_init(*args, **kwargs)
 
     def _create_ast_init(self):
@@ -110,7 +117,8 @@ class ASTModel(Model):
         # Lets use the ast.NodeTransformer for rewriting. The RewriteInit node
         # transformer is defined below this class.
         rewriter = RewriteInit(new_if_body=[assign],
-                               len_fields=len(cls._meta.fields))
+                               len_fields=len(cls._meta.fields),
+                               send_init_signals=self.send_init_signals)
         init_ast = rewriter.visit(init_ast)
         ast.fix_missing_locations(init_ast)
 
@@ -121,27 +129,31 @@ class ASTModel(Model):
         return init_context['__init__']
 
 
+
 class RewriteInit(ast.NodeTransformer):
-    def __init__(self, new_if_body, len_fields):
+    def __init__(self, new_if_body, len_fields, send_init_signals):
         self.new_if_body = new_if_body
         self.len_fields = len_fields
+        self.send_init_signals = send_init_signals
 
     def visit_If(self, node):
         try:
-            if node.test.comparators[0].n == -999:
-                #print ast.dump(node.body[0])
-                #print ast.dump(node.test)
+            if (not self.send_init_signals and hasattr(node.test, 'attr')
+                 and node.test.attr == 'send_init_signals'):
+                return None
+            if (hasattr(node.test, 'comparators')
+                 and hasattr(node.test.comparators[0], 'n')
+                 and node.test.comparators[0].n == -999):
                 test = ast.Compare(left=node.test.left, ops=node.test.ops,
                                 comparators=[ast.Num(n=self.len_fields)])
                 newif = ast.If(test=test, body=self.new_if_body,
                                orelse=node.orelse)
                 return newif
             return node
+            
         except Exception, e:
-            raise e 
-            #print e
             #print ast.dump(node)
-            return node
+            raise e 
 
 django_init_src = """
 # This is the django.db.models.base.Model.__init__ method. The method has
@@ -166,7 +178,7 @@ def __init__(self, *args, **kwargs):
     # self.field1, self.field2, ... = args.
     # The constant -999 is a marker for ast generation.
     if len(args) == -999:
-        pass
+        self.field1, self.field2 = args
     else:
         # Fall through to original __init__ code.
 
