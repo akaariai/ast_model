@@ -3,12 +3,11 @@ from django.db.models.base import ModelBase
 from django.db.models import Field
 import ast
 
-class ASTModelBase(ModelBase):
+class ASTModel(Model):
     """
-    A class using ASTModelBase will use a custom __init__ method. The
+    A class deriving from ASTModel will use a custom __init__ method. The
     properties of the custom __init__ are as follows:
-        - Signals are not sent. This is done by hand-editing the original
-          __init__ source.
+        - Signals are sent only when needed.
         - If there is exactly as much args to __init__ as it has fields
           a fast path is taken. The fast path is a rewrite of:
               for attname, val in izip(attnames, args):
@@ -18,37 +17,45 @@ class ASTModelBase(ModelBase):
         - Otherwise the init method should work normally. Although this is
           _very_ experimental.
 
-    ASTModelBase can not be used with any model which has GenericForeignKey
-    or ImageFields. The working of those fields is based on pre_init/post_init
-    signals. There is no checking if these fields are present. ImageField
-    should actually work if you don't have width/height DB fields.
-
     AST is used to dynamically alter the original Model.__init__ into a new
     __init__ method which has the abovementioned optimizations done. The AST
     generation has a lot of comments, so it should be possible to follow what
     is done.
 
-    Requirements: Python 2.6 or Python 2.7. There is no Python 3 support in
-    Django, but the AST part should work with minor modifications.
+    Requirements: Python 2.6 or Python 2.7.
 
     Usage:
-    class SomeModel(models.Model):
-        __metaclass__ = ASTModelBase
+        from astmodel import ASTModel
+        class SomeModel(ASTModel):
+            # If you want to force init signal sending, then set
+            # send_init_signals = True
+            # otherwise, init_signals are sent only if the Model
+            # contains ImageFields or GenericForeignKeys. 
+            normal class definition otherwise
+                                              
 
     Known bugs and limitations:
       - Eats your data. In other words, not tested at all. Use at your own
         risk.
-      - Changes made to the original __init__ are not reflected here. The
-        django_init_src will need to be updated, and in addition to that, the
-        validity of the AST transforms need to be checked. It is likely that
-        this source code will not be updated when Django is updated. The
-        Django version used for testing is trunk HEAD as of 2011-11-13.
 
-    It might be more portable, and easier, to just dynamically alter the
-    source code instead of going the AST route. But I wanted to learn AST...
+    I have tested this on Django trunk as of 2011-12-04, all tests passed.
     """
+    __metaclass__ = ASTModelBase
+    send_init_signals = False
 
-    def _create_ast_init(cls):
+    def __init__(self, *args, **kwargs):
+        try:
+            self._asted_init(*args, **kwargs)
+        except AttributeError:
+            new_init = self._create_ast_init()
+            self.__class__._asted_init = new_init
+            for field in self._meta.fields:
+                if (isinstance(field, GenericForeignKey)
+                    or isinstance(field, ImageField)):
+                    self.send_init_signals = True
+            self._asted_init(*args, **kwargs)
+
+    def _create_ast_init(self):
         """
         This method will read in the _django_init_src, which is a string
         containing a modified version of the normal Model __init__() method.
@@ -67,36 +74,25 @@ class ASTModelBase(ModelBase):
         
         in field_assign_src.
         """
-    
+        cls = self.__class__
         # We need a context where everything necessary for the normal
         # __init__ is included. Lets start from the builtins, without those
         # things like len() are not available.
         init_context = {}
         init_context.update(__builtins__)
 
-        # Next, lets import things that are needed by the init into the
-        # context.
-        # TODO: Can we import these in the django_init_src directly?
-        from django.db.models.base import ModelState
-        from itertools import izip
-        from django.db.models.query_utils import DeferredAttribute
-        init_context['izip'] = izip
-        init_context['ModelState'] = ModelState
-        init_context['DeferredAttribute'] = DeferredAttribute
         init_ast = ast.parse(django_init_src)
 
         # Before we start modifying the AST, lets create some nodes we will be
         # needing. We need the self.f1, self.f2, ... = args part of the code.
-        # The below code is here just so that it is easy to see what the
-        # assignment AST should look like.
-        field_assign_ast = ast.parse(field_assign_src)
-        #print ast.dump(field_assign_ast)
 
         # Create some reusable nodes.
         store = ast.Store()
         load = ast.Load()
         # Lets work the new AST from inside out, the innermost nodes are:
         # Attribute(value=Name(id='self', ctx=Load()), attr='f1', ctx=Store())
+        # We create a list of them, after this we have the left side:
+        # self.f1, self.f2, self.f3, ...
         attrs = []
         for field in cls._meta.fields:
             name = ast.Name(id='self', ctx=load)
@@ -105,6 +101,7 @@ class ASTModelBase(ModelBase):
         # Now transform that into "store" tuple
         tuple = ast.Tuple(elts=attrs, ctx=store)
         # We are storing the args into that tuple
+        # (create the = args part)
         args = ast.Name(id='args', ctx=load)
         assign = ast.Assign(targets=[tuple], value=args)
         # Now the self.f1, ... = args part is ready. We need still to rewrite
@@ -123,30 +120,6 @@ class ASTModelBase(ModelBase):
         exec init_compiled in init_context
         return init_context['__init__']
 
-    def add_to_class(cls, name, value):
-        """
-        Whenever a new field is added to the ASTModelBase, we need to recreate
-        the __init__ method.
-        """
-        # TODO: we could enforce no GenericForeignKeys / ImageFields
-        # We could also make the ASTed __init__ send the needed signals if
-        # GenericForeignKey is present.
-        
-        # 1. Add the field normally to the model, so that the options.fields
-        # iterator is usable. AST modification depends on the fields iterator
-        # being present.
-        super(ASTModelBase, cls).add_to_class(name, value)
-
-        # 2. assign the asted method if we were adding a field.
-        if isinstance(value, Field):
-            # There is probably a concurrency issue here - user might access
-            # the old init at this point, but the field is already added. I
-            # don't know if this is something to worry about.
-            new_init = cls._create_ast_init()
-
-            # TODO: we should really test the new init here...
-            cls.__init__ = new_init
-        # That's it folks.
 
 class RewriteInit(ast.NodeTransformer):
     def __init__(self, new_if_body, len_fields):
@@ -162,14 +135,11 @@ class RewriteInit(ast.NodeTransformer):
                                 comparators=[ast.Num(n=self.len_fields)])
                 newif = ast.If(test=test, body=self.new_if_body,
                                orelse=node.orelse)
-                # Use the following code if you want to test the hard coded
-                # dict.update way. Works only for Foo10 model.
-                #newif = ast.If(test=test, body=node.body,
-                #               orelse=node.orelse)
                 return newif
             return node
         except Exception, e:
-            print e
+            raise e 
+            #print e
             #print ast.dump(node)
             return node
 
@@ -177,19 +147,26 @@ django_init_src = """
 # This is the django.db.models.base.Model.__init__ method. The method has
 # some comments starting with AST noting what we are going to change.
 # Signals have been removed by hand. They could be removed 
+from django.db.models import Model
+from django.db.models.base import ModelState
+from django.db.models.fields.related import ManyToOneRel
+from django.db.models.query_utils import DeferredAttribute
+from django.db.models.signals import pre_init, post_init
+
+from itertools import izip
 
 def __init__(self, *args, **kwargs):
     # Set up the storage for instance state
+    if self.send_init_signals:
+        pre_init.send(sender=self.__class__, args=args, kwargs=kwargs)
     self._state = ModelState()
 
-    # AST: we are going to rewrite the -999 below, and also the pass into
-    # self.field1, self.field2, ... = args. The constant -999 is a marker
-    # for ast generation. You can try the __dict__.update way by altering
-    # the RewriteInit class above.
+    # AST: we are going to rewrite the -999 below to actual field count.
+    # What is contained in the if branch will be rewritten into:
+    # self.field1, self.field2, ... = args.
+    # The constant -999 is a marker for ast generation.
     if len(args) == -999:
-        self.__dict__.update(izip(
-            ['id', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10'],
-            args))
+        pass
     else:
         # Fall through to original __init__ code.
 
@@ -268,18 +245,17 @@ def __init__(self, *args, **kwargs):
             else:
                 setattr(self, field.attname, val)
 
+        if kwargs:
+            for prop in kwargs.keys():
+                try:
+                    if isinstance(getattr(self.__class__, prop), property):
+                        setattr(self, prop, kwargs.pop(prop))
+                except AttributeError:
+                    pass
             if kwargs:
-                for prop in kwargs.keys():
-                    try:
-                        if isinstance(getattr(self.__class__, prop), property):
-                            setattr(self, prop, kwargs.pop(prop))
-                    except AttributeError:
-                        pass
-                if kwargs:
-                    raise TypeError("'%s' is an invalid keyword argument for this function" % kwargs.keys()[0])
-"""
-
-field_assign_src = """
-self.f1, self.f2 = args
+                raise TypeError("'%s' is an invalid keyword argument for this function" % kwargs.keys()[0])
+    super(Model, self).__init__()
+    if self.send_init_signals:
+        post_init.send(sender=self.__class__, instance=self)
 """
 
