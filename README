@@ -1,44 +1,39 @@
-This experimental project includes a new model base class, ASTModelBase. The
-ASTModelBase will rewrite the __init__ so that the standard setattr based
-field value assigment is rewritten to:
-self.f1, self.f2, ... = args
+    A class deriving from ASTModel will use a custom __init__ method. The
+    properties of the custom __init__ are as follows:
+        - Signals are sent only when needed.
+        - If there is exactly as much args to __init__ as it has fields
+          a fast path is taken. The fast path is a rewrite of:
+              for attname, val in izip(attnames, args):
+                  setattr(self, attname, val)
+          into this:
+              self.att1, self.att2, self.att3, ... = args
+        - Otherwise the init method should work normally. Although this is
+          _very_ experimental.
 
-This fast-path is usable only when using args based initialization, and when
-there are exactly as many args as there are fields in the model. This is the
-case when fetching objects from the DB and not using .only() or .defer().
+    AST is used to dynamically alter the original Model.__init__ into a new
+    __init__ method which has the abovementioned optimizations done. The AST
+    generation has a lot of comments, so it should be possible to follow what
+    is done.
 
-pre_init and post_init signals will not be sent for models using ASTModelBase.
-This means that models using GenericForeignKeys or ImageFields will not work
-correctly.
+    Requirements: Python 2.6 or Python 2.7.
 
-To use ASTModelBase, copy astmodelbase.py to your project root, and then in
-models py, do this:
-from my_project.astmodelbase import ASTModelBase
+    Usage:
+        from astmodel import ASTModel
+        class SomeModel(ASTModel):
+            # If you want to force init signal sending, then set
+            # send_init_signals = True
+            # otherwise, init_signals are sent only if the Model
+            # contains ImageFields or GenericForeignKeys. 
+            normal class definition otherwise
+                                              
 
-class SomeModel(models.Model):
-    __metaclass__ = ASTModelBase
-    ...
+    Known bugs and limitations:
+      - Eats your data. In other words, use at your own risk.
 
+    I have tested this on Django trunk as of 2011-12-04, all tests passed.
 
-The speed differences for 30000 Foo10 object initializations is as follows:
-    Raw init: ~2 seconds -> ~0.4 seconds
-    From DB: ~3 seconds -> ~1.4 seconds
-For reference, the time taken for raw SQL is around 0.6 seconds, so the
-overhead is still a bit more than 100%.
-
-Without any signals in the project:
-    Raw init: ~1.2 seconds -> ~0.4 seconds
-    From DB: ~2.3 seconds -> ~1.4 seconds
-
-Using __dict__.update in the asted init instead of the self.f1, ... = args:
-    Raw init: ~0.5 seconds -> ~0.4 seconds
-    From DB: ~1.5 seconds -> ~1.4 seconds
-
-The __dict__.update will not call setattr if you have one defined in your
-model. The self.f1, ... = args will call it.
-
-Same as first test, but using .chunked() for DB fetch.
-Chunked is provided by a patch at:
-https://github.com/akaariai/django/tree/chunked
-    Raw init: ~2 seconds -> ~0.4 seconds
-    From DB: ~2.8 seconds -> ~1.1 seconds
+    The speed difference (using the included tester) is as follows:
+       raw init speed, 10000 objects, 11 fields:
+           astmodel: 0.18s (signals to other models or not)
+           normal model: 0.37s
+           with signals: 0.55s (to _other_ model that the tested model!)

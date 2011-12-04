@@ -1,44 +1,34 @@
-from django.core.management import setup_environ
-import settings
-setup_environ(settings)
-
 from datetime import datetime
 from django.db.transaction import commit_on_success
-from obj_creation_speed.models import Foo10
-
-DATA_COUNT = 30000
-ITERATIONS = 3
-
-testobj = Foo10(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-assert testobj.pk == 0
-for i in range(1, 11):
-    assert getattr(testobj, 'f%d' % i) == i
+from django.db import connection
+from obj_creation_speed.models import Foo10, FooExt2, FooExt1, SignalsModel
+DATA_COUNT = 10000
+ITERATIONS = 10
 
 @commit_on_success
 def create_data(count):
-    Foo10.objects.all().delete()
+    while Foo10.objects.count() > 0:
+        Foo10.objects.filter(pk__in=Foo10.objects.all()[0:500]).delete()
     for i in range(0, count):
-        Foo10(*([i]*11)).save()
+        Foo10(*([i]*len(Foo10._meta.fields))).save()
 # Needed only on first run
-#create_data(DATA_COUNT)
+create_data(DATA_COUNT)
 
 for _ in range(0, ITERATIONS):
     start = datetime.now()
     for i in range(0, DATA_COUNT):
-        Foo10(1, i, i, i, i, i, i, i, i, i, i)
+        args = [i] * len(Foo10._meta.fields)
+        Foo10(*args)
     print('Time for %d raw inits %s' % (DATA_COUNT, datetime.now() - start))
-
+    
     start = datetime.now()
-    for obj in Foo10.objects.all():
+    for pos, obj in enumerate(Foo10.objects.all().order_by('id')):
         pass
-    # When using chunked iterator from
-    # https://github.com/akaariai/django/tree/chunked
-    #for obj in Foo10.objects.all().chunked():
-    #    pass
-    # Reference test for raw SQL
-    #from django.db import connection
-    #cursor = connection.cursor()
-    #cursor.execute("select * from obj_creation_speed_foo10")
-    #for row in cursor.fetchall():
-    #    pass
     print('Time for %d objs from DB %s' % (DATA_COUNT, datetime.now() - start))
+    
+    start = datetime.now()
+    cursor = connection.cursor()
+    cursor.execute("select * from obj_creation_speed_foo10")
+    for row in cursor.fetchall():
+        pass
+    print('Time for %d objs with raw SQL %s' % (DATA_COUNT, datetime.now() - start))

@@ -5,44 +5,6 @@ from django.contrib.contenttypes.generic import GenericForeignKey
 import ast
 
 class ASTModel(Model):
-    """
-    A class deriving from ASTModel will use a custom __init__ method. The
-    properties of the custom __init__ are as follows:
-        - Signals are sent only when needed.
-        - If there is exactly as much args to __init__ as it has fields
-          a fast path is taken. The fast path is a rewrite of:
-              for attname, val in izip(attnames, args):
-                  setattr(self, attname, val)
-          into this:
-              self.att1, self.att2, self.att3, ... = args
-        - Otherwise the init method should work normally. Although this is
-          _very_ experimental.
-
-    AST is used to dynamically alter the original Model.__init__ into a new
-    __init__ method which has the abovementioned optimizations done. The AST
-    generation has a lot of comments, so it should be possible to follow what
-    is done.
-
-    Requirements: Python 2.6 or Python 2.7.
-
-    Usage:
-        from somewhere.astmodel import ASTModel
-        class SomeModel(ASTModel):
-            # If you want to force init signal sending, then set
-            # send_init_signals = True
-            # otherwise, init_signals are sent only if the Model
-            # contains ImageFields or GenericForeignKeys. 
-            normal class definition otherwise
-                                              
-
-    Known bugs and limitations:
-      - Eats your data. In other words, not tested at all. Use at your own
-        risk.
-      - Due to Django assuming that models are in some module, you must
-        install this file into a subdirectory of your project root.
-
-    I have tested this on Django trunk as of 2011-12-04, all tests passed.
-    """
     send_init_signals = False
     
     class Meta:
@@ -58,6 +20,7 @@ class ASTModel(Model):
                     self.send_init_signals = True
             new_init = self._create_ast_init()
             self.__class__._asted_init = new_init
+            # Lets see if we can use a fast-path?
             if self.__class__.__init__ == ASTModel.__init__:
                  self.__class__.__init__ = new_init
             self._asted_init(*args, **kwargs)

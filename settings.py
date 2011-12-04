@@ -11,7 +11,8 @@ MANAGERS = ADMINS
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3', # Add 'postgresql_psycopg2', 'postgresql', 'mysql', 'sqlite3' or 'oracle'.
+        # Add 'postgresql_psycopg2', 'postgresql', 'mysql', 'sqlite3' or 'oracle'.
+        'ENGINE': 'django.db.backends.sqlite3',
         'NAME': 'testdb',                      # Or path to database file if using sqlite3.
         'USER': '',                      # Not used with sqlite3.
         'PASSWORD': '',                  # Not used with sqlite3.
@@ -130,10 +131,23 @@ INSTALLED_APPS = (
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
+        },
+        'simple': {
+            'format': 'LOG: %(name)s - %(levelname)s: %(message)s'
+        },
+    },
     'handlers': {
         'mail_admins': {
             'level': 'ERROR',
             'class': 'django.utils.log.AdminEmailHandler'
+        },
+        'development': {
+            'level': 'WARN',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple'
         }
     },
     'loggers': {
@@ -142,5 +156,9 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': True,
         },
+        'psycopg_pooled': {
+            'handlers': ['development'],
+            'level': 'DEBUG',
+        }
     }
 }

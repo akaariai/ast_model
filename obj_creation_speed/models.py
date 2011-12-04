@@ -1,10 +1,8 @@
 from django.db import models
 from django.db.models import signals
-from astmodelbase import ASTModelBase
+from astmodel import ASTModel
 
-class Foo10(models.Model):
-    __metaclass__ = ASTModelBase
-
+class Foo10(ASTModel):
     f1 = models.IntegerField()
     f2 = models.IntegerField()
     f3 = models.IntegerField()
@@ -16,10 +14,19 @@ class Foo10(models.Model):
     f9 = models.IntegerField()
     f10 = models.IntegerField()
 
+# Some testing models...
+class FooExt1(Foo10):
+    pk2 = models.IntegerField(primary_key=True)
+
+class FooExt2(FooExt1):
+    pass
+
+class FooFK(models.Model):
+    fk = models.ForeignKey(Foo10, related_name='fk_set')
+
 class SignalsModel(models.Model):
-    """
-    A model used only for registering signals to _another_ model than Foo10
-    """
+    #A model used only for registering signals to _another_ model than Foo10
+    pkf = models.CharField(max_length=10, primary_key=True, editable=False)
     pass
 
 def somefunc(*args, **kwargs):
